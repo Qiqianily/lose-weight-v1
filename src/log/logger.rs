@@ -16,8 +16,8 @@ pub async fn init_logger_with_file(logger_level: &str) -> anyhow::Result<WorkerG
     // create the log directory
     let log_dir = "logs";
     std::fs::create_dir_all(log_dir).expect("Failed to create log directory");
-    // 按照当前日期生成日志文件名 blog_sys.log.2025-09-13
-    let file_appender = rolling::daily(log_dir, "micro_sys.log");
+    // 按照当前日期生成日志文件名 weight_sys.log.2026-03-10
+    let file_appender = rolling::daily(log_dir, "weight_sys.log");
     // 创建非阻塞写入器（后台启动一个专门用于写日志的线程）
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
     // 自定义日志输出文件的格式
