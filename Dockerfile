@@ -8,7 +8,7 @@ RUN mkdir -p /app/data /app/conf /app/logs
 COPY lose_weight /app/lose_weight
 
 # 复制配置文件到容器中，在运行时有数据卷挂载。
-#COPY prod.toml /app/conf/prod.toml
+#COPY prod.yml /app/conf/prod.yml
 
 # 设置工作目录
 WORKDIR /app
@@ -17,4 +17,4 @@ WORKDIR /app
 EXPOSE 8989
 
 # 启动命令
-CMD ["./lose_weight","--config", "/app/conf/prod.toml"]
+CMD ["./lose_weight","--config", "/app/conf/prod.yml"]

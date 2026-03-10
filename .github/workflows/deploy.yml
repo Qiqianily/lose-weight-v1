@@ -162,7 +162,7 @@ jobs:
 
           # 6. 更新可执行配置文件中的 version 和 port
           if [ -f "deploy-package/${{ env.CONFIG_FILE }}" ]; then
-            sed -i "s/^version: \".*\"/version: ${{ env.VERSION }}/" deploy-package/${{ env.CONFIG_FILE }}
+            sed -i "s/^version: \".*\"/version: \"${{ env.VERSION }}\"/" deploy-package/${{ env.CONFIG_FILE }}
             sed -i "s/^\([[:space:]]*port: \).*/\1${{ env.SERVER_PORT }}/" deploy-package/${{ env.CONFIG_FILE }}
             echo "✅ 配置文件已更新"
           else
@@ -268,15 +268,15 @@ jobs:
             tar xzf deployment-${{ needs.build.outputs.version }}.tar.gz
 
             # 验证必要文件
-            for file in ${{ env.BINARY_NAME }} ${{ env.DOCKER_COMPOSE_FILE }} ${{ env.ENV_FILE }} ${{ env.DOCKER_FILE }}; do
+            for file in ${{ env.BINARY_NAME }} ${{ env.DOCKER_COMPOSE_FILE }} ${{ env.ENV_FILE }} ${{ env.DOCKER_FILE }} ${{ env.CONFIG_FILE }}; do
               [ -f "$file" ] || { echo "❌ 文件缺失: $file"; exit 1; }
             done
 
-            chmod +x "${{ env.BINARY_NAME }}"
+            chmod +x ${{ env.BINARY_NAME }}
 
             # 复制配置文件
-            mkdir -p ${{ env.REMOTE_CONFIG_DIR }}
-            [ -f "${{ env.CONFIG_FILE }}" ] && cp -f ${{ env.CONFIG_FILE }} ${{ env.REMOTE_CONFIG_DIR }}/ || true
+            # mkdir -p ${{ env.REMOTE_CONFIG_DIR }}
+            [ -f "${{ env.CONFIG_FILE }}" ] && cp -f ${{ env.CONFIG_FILE }} ${{ env.REMOTE_CONFIG_DIR }} ${{ env.CONFIG_FILE }} || true
 
             # 构建并启动服务
             docker compose --env-file ${{ env.ENV_FILE }} -f ${{ env.DOCKER_COMPOSE_FILE }} build --no-cache
