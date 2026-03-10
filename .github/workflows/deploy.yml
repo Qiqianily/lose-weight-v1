@@ -30,7 +30,7 @@ env:
   # 配置文件
   SERVER_PORT: 8989
   ENV_FILE: '.env_prod'
-  CONFIG_FILE: 'prod.toml'
+  CONFIG_FILE: 'prod.yml'
 
 # ========== 工作流定义 ==========
 jobs:
