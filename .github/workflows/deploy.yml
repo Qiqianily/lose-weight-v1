@@ -239,7 +239,7 @@ jobs:
             docker compose down 2>/dev/null || echo "⚠️ 无运行中的服务"
 
             # 清理旧文件
-            rm -rf ${{ env.BINARY_NAME }} ${{ env.DOCKER_COMPOSE_FILE }} ${{ env.ENV_FILE }} ${{ env.CONFIG_FILE }} {{ env.DOCKER_FILE }}
+            rm -rf ${{ env.BINARY_NAME }} ${{ env.DOCKER_COMPOSE_FILE }} ${{ env.ENV_FILE }} ${{ env.CONFIG_FILE }} ${{ env.DOCKER_FILE }}
 
             # 清除 tar.gz 文件
             echo "📦 清理旧的部署包..."
@@ -248,18 +248,15 @@ jobs:
             # 获取文件列表并按修改时间排序（最新的在前面）
             files=($(ls -t deployment-*.tar.gz 2>/dev/null))
 
-            if [ ${#files[@]} -le $KEEP_COUNT ]; then
-                echo "📁 文件数量 (${#files[@]}) 不超过保留数量 ($KEEP_COUNT)，无需清理"
-                exit 0
+            if [ ${#files[@]} -gt $KEEP_COUNT ]; then
+              echo "📊 发现 ${#files[@]} 个部署包文件，保留最新的 $KEEP_COUNT 个"
+              for ((i=KEEP_COUNT; i<${#files[@]}; i++)); do
+                  echo "🗑️  删除: ${files[i]}"
+                  rm -f "${files[i]}"
+              done
+            else
+              echo "📁 文件数量 (${#files[@]}) 不超过保留数量 ($KEEP_COUNT)，无需清理"
             fi
-
-            echo "📊 发现 ${#files[@]} 个部署包文件，保留最新的 $KEEP_COUNT 个"
-
-            # 删除旧文件
-            for ((i=KEEP_COUNT; i<${#files[@]}; i++)); do
-                echo "🗑️  删除: ${files[i]}"
-                rm -f "${files[i]}"
-            done
 
             echo "✅ 清理完成！剩余文件:"
             ls -lh deployment-*.tar.gz 2>/dev/null || echo "📭 没有找到 deployment-*.tar.gz 文件"
@@ -276,7 +273,7 @@ jobs:
 
             # 复制配置文件
             # mkdir -p ${{ env.REMOTE_CONFIG_DIR }}
-            [ -f "${{ env.CONFIG_FILE }}" ] && cp -f ${{ env.CONFIG_FILE }} ${{ env.REMOTE_CONFIG_DIR }} ${{ env.CONFIG_FILE }} || true
+            [ -f "${{ env.CONFIG_FILE }}" ] && cp -f ${{ env.CONFIG_FILE }} ${{ env.REMOTE_CONFIG_DIR }}${{ env.CONFIG_FILE }} || true
 
             # 构建并启动服务
             docker compose --env-file ${{ env.ENV_FILE }} -f ${{ env.DOCKER_COMPOSE_FILE }} build --no-cache
