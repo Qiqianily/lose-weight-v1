@@ -1,0 +1,314 @@
+# ========== Docker 构建部署工作流 ==========
+name: 🐳 Docker Build & Deploy
+
+# ========== 触发条件 ==========
+on:
+  push:
+    tags:
+      - 'v*'  # 版本标签触发
+  workflow_dispatch:  # 手动触发
+    inputs:
+      version:
+        description: '部署版本 (默认: latest)'
+        required: false
+        default: 'latest'
+
+# ========== 环境变量配置 ==========
+env:
+  # 🔧 项目配置 (按需修改)
+  PROJECT_NAME: 'lose_weight'
+  BINARY_NAME: 'lose_weight'
+  RUST_TARGET: 'x86_64-unknown-linux-musl'
+
+  # 📁 目录配置 (按需修改)
+  REMOTE_DEPLOY_DIR: '/weight/backend/deploy/'
+  REMOTE_CONFIG_DIR: '/weight/backend/conf/'
+
+  # 🐳 Docker 配置
+  DOCKER_COMPOSE_FILE: 'docker-compose.yml'
+  DOCKER_FILE: 'Dockerfile'
+  # 配置文件
+  SERVER_PORT: 8989
+  ENV_FILE: '.env_prod'
+  CONFIG_FILE: 'prod.toml'
+
+# ========== 工作流定义 ==========
+jobs:
+  # 阶段1: 构建静态二进制文件
+  build:
+    name: 🔨 Build a static binary file
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_tag:  ${{ steps.version.outputs.IS_TAG }}
+
+    steps:
+      # 步骤1: 检出代码
+      - name: 📥 Checkout code
+        uses: actions/checkout@v6
+
+      # 步骤2: 设置 Rust musl 环境
+      - name: ⚙️ Setup Rust Musl Environment
+        run: |
+          # 安装 Rust
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source $HOME/.cargo/env
+
+          # 安装 musl 目标
+          rustup target add x86_64-unknown-linux-musl
+
+          # 安装 musl 工具
+          sudo apt-get update
+          sudo apt-get install -y musl-tools musl-dev
+
+          # 配置 Cargo
+          mkdir -p .cargo
+          cat > .cargo/config.toml << EOF
+          [target.x86_64-unknown-linux-musl]
+          linker = "x86_64-linux-musl-gcc"
+          EOF
+
+          echo "✅ Rust musl 环境设置完成"
+
+      # 步骤3: 缓存依赖
+      - name: 📦 Cache dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # 步骤4: 构建静态二进制文件
+      - name: 🔨 Build static binary
+        run: |
+          source $HOME/.cargo/env
+          export RUSTFLAGS="-C linker=x86_64-linux-musl-gcc"
+
+          echo "🏗️ 开始构建..."
+          cargo build --release --bin ${{ env.BINARY_NAME }} --target ${{ env.RUST_TARGET }}
+
+          # 验证构建结果
+          BINARY_PATH="target/${{ env.RUST_TARGET }}/release/${{ env.BINARY_NAME }}"
+          if [ -f "$BINARY_PATH" ]; then
+            echo "✅ 构建成功: $BINARY_PATH"
+            echo "📊 文件信息:"
+            file "$BINARY_PATH"
+            echo "💾 文件大小:"
+            du -h "$BINARY_PATH"
+          else
+            echo "❌ 构建失败: 文件不存在"
+            exit 1
+          fi
+
+      # 步骤5: 提取版本号
+      - name: 🏷️ Extract version tag
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" =~ ^refs/tags/v([0-9]+\.[0-9]+(\.[0-9]+)*) ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            IS_TAG="true"
+            echo "✅ 提取到版本号: $VERSION"
+          elif [[ "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+            IS_TAG="false"
+          else
+            VERSION="latest"
+            IS_TAG="false"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "IS_TAG=$IS_TAG" >> $GITHUB_OUTPUT
+          echo "✅ 使用版本: $VERSION"
+
+      # 步骤6: 准备部署包
+      - name: 📦 Prepare deployment package
+        run: |
+          # 创建部署目录
+          mkdir -p deploy-package
+
+          echo "📁 准备部署文件..."
+
+          # 1. 复制二进制文件
+          cp -v "target/${{ env.RUST_TARGET }}/release/${{ env.BINARY_NAME }}" deploy-package/
+
+          # 2. 设置执行权限
+          chmod +x "deploy-package/${{ env.BINARY_NAME }}"
+
+          # 3. 复制 Dockerfile
+          cp -v ${{ env.DOCKER_COMPOSE_FILE }} ${{ env.DOCKER_FILE }} deploy-package/
+
+          # 4. 复制环境配置文件和可执行程序的配置文件到部署目录中
+          cp -v ${{ env.ENV_FILE }} ${{ env.CONFIG_FILE }} deploy-package/
+
+          # 5. 更新环境文件中的版本信息和容器名称以及服务端口号
+          if [ -f "deploy-package/${{ env.ENV_FILE }}" ]; then
+            sed -i "s/^CURRENT_VERSION=.*/CURRENT_VERSION=${{ env.VERSION }}/" deploy-package/${{ env.ENV_FILE }}
+            sed -i "s/^LOSE_WEIGHT_IMAGE_NAME=.*/LOSE_WEIGHT_IMAGE_NAME=${{ env.BINARY_NAME }}/" deploy-package/${{ env.ENV_FILE }}
+            sed -i "s/^LOSE_WEIGHT_SEVER_PORT=.*/LOSE_WEIGHT_SEVER_PORT=${{ env.SERVER_PORT }}/" deploy-package/${{ env.ENV_FILE }}
+            echo "✅ 环境文件已更新"
+          else
+            echo "⚠️ 环境文件不存在，创建默认文件"
+            cat > deploy-package/${{ env.ENV_FILE }} << EOF
+            CURRENT_VERSION=${{ env.VERSION }}
+            LOSE_WEIGHT_IMAGE_NAME=${{ env.BINARY_NAME }}
+            LOSE_WEIGHT_SEVER_PORT=${{ env.SERVER_PORT }}
+            RUST_LOG=info
+          EOF
+          fi
+
+          # 6. 更新可执行配置文件中的 version 和 port
+          if [ -f "deploy-package/${{ env.CONFIG_FILE }}" ]; then
+            sed -i "s/^version: \".*\"/version: ${{ env.VERSION }}/" deploy-package/${{ env.CONFIG_FILE }}
+            sed -i "s/^\([[:space:]]*port: \).*/\1${{ env.SERVER_PORT }}/" deploy-package/${{ env.CONFIG_FILE }}
+            echo "✅ 配置文件已更新"
+          else
+              echo "⚠️ 配置文件文件不存在"
+          fi
+
+          echo "📁 部署包内容:"
+          ls -la deploy-package/
+
+          # 创建压缩包
+          tar czf deployment-${{ env.VERSION }}.tar.gz -C deploy-package .
+
+      # 步骤7: 上传构建产物
+      - name: 📤 Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ env.VERSION }}
+          path: deployment-${{ env.VERSION }}.tar.gz
+          retention-days: 1
+
+  # 阶段2: 部署到服务器
+  deploy:
+    name: 🚀 Deploy to the remote server
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production
+
+    steps:
+      # 步骤1: 下载构建产物
+      - name: 📥 Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-${{ needs.build.outputs.version }}
+
+      # 步骤2: 设置 SSH
+      - name: 🔑 Setup SSH
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # 步骤3: 测试 SSH 连接
+      - name: 🧪 Test SSH connection
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} \
+            "echo '✅ SSH 连接成功' && docker --version && docker compose version"
+
+      # 步骤4: 上传构建包
+      - name: 📤 Upload to server
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "deployment-${{ needs.build.outputs.version }}.tar.gz"
+          target: ${{ env.REMOTE_DEPLOY_DIR }}
+          timeout: 300s
+
+      # 步骤5: 执行远程部署
+      - name: 🚀 Execute deployment
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          timeout: 10m
+          script: |
+            set -e
+            cd ${{ env.REMOTE_DEPLOY_DIR }}
+
+            echo "🔧 开始部署流程..."
+
+            # 停止现有服务
+            docker compose down 2>/dev/null || echo "⚠️ 无运行中的服务"
+
+            # 清理旧文件
+            rm -rf ${{ env.BINARY_NAME }} ${{ env.DOCKER_COMPOSE_FILE }} ${{ env.ENV_FILE }} ${{ env.CONFIG_FILE }} {{ env.DOCKER_FILE }}
+
+            # 清除 tar.gz 文件
+            echo "📦 清理旧的部署包..."
+            KEEP_COUNT=2
+
+            # 获取文件列表并按修改时间排序（最新的在前面）
+            files=($(ls -t deployment-*.tar.gz 2>/dev/null))
+
+            if [ ${#files[@]} -le $KEEP_COUNT ]; then
+                echo "📁 文件数量 (${#files[@]}) 不超过保留数量 ($KEEP_COUNT)，无需清理"
+                exit 0
+            fi
+
+            echo "📊 发现 ${#files[@]} 个部署包文件，保留最新的 $KEEP_COUNT 个"
+
+            # 删除旧文件
+            for ((i=KEEP_COUNT; i<${#files[@]}; i++)); do
+                echo "🗑️  删除: ${files[i]}"
+                rm -f "${files[i]}"
+            done
+
+            echo "✅ 清理完成！剩余文件:"
+            ls -lh deployment-*.tar.gz 2>/dev/null || echo "📭 没有找到 deployment-*.tar.gz 文件"
+
+            # 解压部署包
+            tar xzf deployment-${{ needs.build.outputs.version }}.tar.gz
+
+            # 验证必要文件
+            for file in ${{ env.BINARY_NAME }} ${{ env.DOCKER_COMPOSE_FILE }} ${{ env.ENV_FILE }} ${{ env.DOCKER_FILE }}; do
+              [ -f "$file" ] || { echo "❌ 文件缺失: $file"; exit 1; }
+            done
+
+            chmod +x "${{ env.BINARY_NAME }}"
+
+            # 复制配置文件
+            mkdir -p ${{ env.REMOTE_CONFIG_DIR }}
+            [ -f "${{ env.CONFIG_FILE }}" ] && cp -f ${{ env.CONFIG_FILE }} ${{ env.REMOTE_CONFIG_DIR }}/ || true
+
+            # 构建并启动服务
+            docker compose --env-file ${{ env.ENV_FILE }} -f ${{ env.DOCKER_COMPOSE_FILE }} build --no-cache
+            docker compose --env-file ${{ env.ENV_FILE }} -f ${{ env.DOCKER_COMPOSE_FILE }} up -d
+
+            # 等待服务启动
+            sleep 10
+
+            # 验证服务状态
+            echo "📊 服务状态:"
+            docker ps --filter "name=${{ env.PROJECT_NAME }}"
+
+            # 清理旧镜像
+            echo "🧹 智能清理旧镜像（每个服务保留最新版本）..."
+            CURRENT_IMAGE=$(docker inspect ${{ env.PROJECT_NAME }} --format '{{.Config.Image}}' 2>/dev/null || echo "")
+            [ -n "$CURRENT_IMAGE" ] && echo "🆕 当前镜像: $CURRENT_IMAGE"
+
+            docker images --filter "reference=*${{ env.PROJECT_NAME }}*" --format "{{.Repository}}:{{.Tag}}" | \
+            while read -r image; do
+              if [ "$image" != "$CURRENT_IMAGE" ] && [ -n "$image" ]; then
+                echo "🗑️ 删除: $image"
+                docker rmi "$image" 2>/dev/null || echo "⚠️ 无法删除 $image"
+              fi
+            done
+
+            # 清理悬空镜像
+            echo "🧽 清理悬空镜像..."
+            docker image prune -f 2>/dev/null || true
+
+            echo "📋 清理后的镜像列表:"
+            docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedSince}}" | grep -E "(${{env.PROJECT_NAME}}_|REPOSITORY)" || true
+
+            echo ""
+            echo "✅ 清理完成！每个服务只保留正在使用的镜像"
+            echo "🎉 部署完成! 镜像清理完成！当前运行版本: ${{ needs.build.outputs.version }}"

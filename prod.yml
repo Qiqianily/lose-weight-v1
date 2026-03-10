@@ -1,0 +1,35 @@
+# version
+version: "0.0.0"
+# base configuration
+base:
+  host: "0.0.0.0"
+  port: 9000
+  log_level: "info"
+  allowed_hosts:
+    - "http://shanghanlun.com:7777"
+    - "http://117.72.195.38:7777"
+    - "http://localhost:5173"
+    - "http://localhost:7788"
+# database configuration
+database:
+  url: "postgres://postgres:yx379099@weight_psql:5458/weightdb?options=-c%20timezone=Asia/Shanghai"
+  min_connections: 3 # 最小连接数
+  max_connections: 10 # 最大连接数
+  connect_timeout_secs: 10
+  acquire_timeout_secs: 6
+  idle_timeout_secs: 600 # 10分钟
+  max_lifetime_secs: 1800 # 30分钟
+  sqlx_logging: false
+  schema: "public"
+  timezone: "Asia/Shanghai"
+# redis configuration
+redis:
+  url: "redis://:yx379099@weight_redis"
+  max_open: 20 # 最大连接数
+  max_idle: 10 # 最大空闲数
+  timeout_sec: 5 # 超时 5 秒
+
+# is development environment
+is_dev: false
+# append new info to test image copy function
+# new info one more for test

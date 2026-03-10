@@ -1,0 +1,189 @@
+name: 🚀 Rust CI/CD Pipeline
+
+# 触发条件：master 分支推送或拉取请求，以及标签推送
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - master
+
+# 全局权限设置（仅在需要时启用更细粒度控制）
+permissions:
+  contents: read
+
+jobs:
+  #   Job 1: Lint 检查（格式、静态分析）
+  lint:
+    name: 🤖 Lint Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📂 Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: 🔧 Install Rust stable
+        run: rustup toolchain install stable
+
+      - name: 🧹 Format check
+        run: cargo fmt -- --check
+
+      - name: 🛠️ Clippy static analysis
+        run: cargo clippy --all-targets --all-features --tests --benches -- -D warnings
+
+  #      - name: 🛠️ Install cargo-audit
+  #        run: cargo install cargo-audit
+  #
+  #      - name: 🔍 Audit dependencies for vulnerabilities
+  #        run: cargo audit
+
+  # Job 2: 测试执行（并生成覆盖率报告）
+  test:
+    name: 🧪 Run Tests
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: 📂 Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: 🔧 Install Rust stable
+        run: rustup toolchain install stable --component llvm-tools-preview
+
+      - name: 🧪 Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: 🧪 Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: 📦 Restore cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: 🧪 Run tests with coverage
+        run: |
+          cargo nextest run --all-features
+    #          cargo llvm-cov --lcov --output-path lcov.info
+
+    #      - name: 📤 Upload coverage to Codecov
+    #        uses: codecov/codecov-action@v5
+    #        with:
+    #          file: ./lcov.info
+
+    # Job 3: 构建二进制文件（带缓存和多平台支持）
+    #  build:
+    #    name: 🚀 Build Binary
+    #    runs-on: ${{ matrix.platform }}
+    #    strategy:
+    #      matrix:
+    #        platform: [ubuntu-latest, windows-latest, macos-latest]
+    #    steps:
+    #      - name: 📂 Checkout code
+    #        uses: actions/checkout@v4
+    #        with:
+    #          fetch-depth: 0
+    #          submodules: recursive
+    #
+    #      - name: 🔧 Install Rust stable
+    #        run: rustup toolchain install stable
+    #
+    #      - name: 📦 Restore cache
+    #        uses: Swatinem/rust-cache@v2
+    #
+    #      - name: 🏗️ Build release binary
+    #        run: cargo build --release
+    #
+    #      - name: 📁 Upload artifact
+    #        uses: actions/upload-artifact@v4
+    #        with:
+    #          name: my-app-${{ matrix.platform }}
+    #          path: target/release/my-app*
+
+    # Job 4: 文档构建与部署（docs.rs 风格）
+  #  docs:
+  #      name: 📚 Build and Deploy Docs
+  #      runs-on: ubuntu-latest
+  #      steps:
+  #        - name: 📂 Checkout code
+  #          uses: actions/checkout@v4
+  #          with:
+  #            fetch-depth: 0
+  #            submodules: recursive
+  #
+  #        - name: 🔧 Install Rust stable
+  #          run: rustup toolchain install stable
+  #
+  #        - name: 📘 Build documentation
+  #          run: cargo doc --no-deps
+  #
+  #        - name: 🚀 Deploy docs to GitHub Pages
+  #          uses: peaceiris/actions-gh-pages@v3
+  #          with:
+  #            github_token: ${{ secrets.GITHUB_TOKEN }}
+  #            publish_dir: ./target/doc
+
+  # Job 5: 发布版本（当打 tag 时触发）
+  release:
+    name: 🚀 Create GitHub Release
+    needs: [test, lint]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 📂 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+
+      - name: 📜 Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: git_cliff
+        with:
+          config: cliff.toml
+          args: -vv --latest --strip header
+        env:
+          OUTPUT: CHANGES.md
+
+      - name: 📦 Download artifacts (from build job)
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: 📦 Prepare release assets
+        # 添加 CHANGES.md 到 release-assets/
+        # cp CHANGES.md release-assets/
+        run: |
+          mkdir -p release-assets
+          cp artifacts/*/*.zip release-assets/ || true
+
+      - name: 📦 Upload release to GitHub
+        uses: softprops/action-gh-release@v2.2.2
+        with:
+          # 发布标题为 tag 名
+          body: ${{ steps.git_cliff.outputs.content }}
+          files: |
+            release-assets/*
+
+  # Job 6: Slack 通知（失败时触发）
+#  notify:
+#    name: 🚨 Notify on Failure
+#    if: failure()
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: 💬 Send Slack notification
+#        uses: rtCamp/action-slack-notify@v2
+#        env:
+#          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+#          SLACK_TITLE: "GitHub Actions CI Failed"
+#          SLACK_MESSAGE: "Check the workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

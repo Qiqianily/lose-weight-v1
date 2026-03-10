@@ -1,0 +1,36 @@
+# version: "3.8"
+
+networks:
+  lose-weight:
+    driver: bridge
+    external: true
+    name: lose-weight
+    # ipam:
+    #   config:
+    #     - subnet: 172.20.0.0/16
+
+services:
+  lose_weight:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${CURRENT_VERSION:-latest}
+    image: ${LOSE_WEIGHT_IMAGE_NAME}:${CURRENT_VERSION:-latest}
+    container_name: ${LOSE_WEIGHT_IMAGE_NAME}
+    env_file: .env_prod # 📄 环境变量文件
+    restart: unless-stopped
+    ports:
+      - "${LOSE_WEIGHT_SEVER_PORT:-8989}:8989"
+    environment:
+      - CURRENT_VERSION=${CURRENT_VERSION:-latest}
+      - RUST_LOG=${GRPC_LOG_LEVEL:-info}
+    volumes:
+      - /weight/backend/conf:/app/conf:ro
+      - /weight/backend/data:/app/data
+      - /weight/backend/log:/app/logs
+    networks:
+      - lose-weight
+    labels:
+      - "version=${CURRENT_VERSION:-latest}"
+      - "service=lose_weight"

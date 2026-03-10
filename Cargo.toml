@@ -1,0 +1,28 @@
+[package]
+name = "lose_weight"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+authors = ["<Qiqianily> <Joedian@163.com>"]
+description = "The backend service for lose weight."
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0.102"
+thiserror = "2.0.18"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+clap = { version = "4.5.60", features = ["derive"] }
+config = { version = "0.15.19", features = ["yaml"] }
+axum = { version = "0.8.8", features = ["macros"] }
+tokio = { version = "1.50.0", features = ["macros", "rt-multi-thread", "signal"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "postgres", "json", "uuid", "chrono", "derive", "time"] }
+tower-http = { version = "0.6.8", features = ["cors", "trace", "timeout", "limit", "normalize-path", "auth"] }
+tracing = { version = "0.1.44", features = ["async-await"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter", "chrono"] }
+tracing-appender = "0.2.4"
+redis = { version = "1.0.5" ,features = ["tokio-comp"] }
+mobc = "0.9.0"
+mobc-redis = "0.9.0"
+xid = "1.1.1"
+bytesize = "2.3.1"
