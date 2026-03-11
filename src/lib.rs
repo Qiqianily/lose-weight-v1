@@ -1,4 +1,5 @@
 pub mod app;
+pub mod common;
 pub mod conf;
 pub mod db;
 pub mod log;
